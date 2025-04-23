@@ -11,7 +11,7 @@ from astrbot.api.event import filter
 
 from .prompt_extractor import PromptExtractor
 
-@register("prompt_tools", "Author", "兼容酒馆预设以及管理工具", "1.0.0", "https://github.com/LKarxa/prompt_tools")
+@register("prompt_tools", "LKarxa", "兼容酒馆预设以及管理工具", "1.0.0", "https://github.com/LKarxa/prompt_tools")
 class PromptToolsPlugin(Star):
     def __init__(self, context: Context):
         super().__init__(context)
