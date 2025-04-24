@@ -1,12 +1,8 @@
 import json
 import os
-import logging
 from pathlib import Path
 from typing import Dict, List, Optional, Any, Tuple
-
-# 配置日志
-logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
-logger = logging.getLogger("prompt_extractor")
+from astrbot.api import logger
 
 class PromptExtractor:
     """

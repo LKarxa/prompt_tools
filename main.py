@@ -1,17 +1,15 @@
 import os
 import json
-import logging
 from typing import List, Dict, Any, Optional
 from pathlib import Path
 
 from astrbot.api.event import filter, AstrMessageEvent, MessageEventResult
 from astrbot.api.star import Context, Star, register
 from astrbot.api import logger
-from astrbot.api.event import filter
 
 from .prompt_extractor import PromptExtractor
 
-@register("prompt_tools", "LKarxa", "兼容酒馆预设以及管理工具", "1.0.0", "https://github.com/LKarxa/prompt_tools")
+@register("prompt_tools", "LKarxa", "提示词管理与激活工具", "1.0.0", "https://github.com/LKarxa/prompt_tools")
 class PromptToolsPlugin(Star):
     def __init__(self, context: Context):
         super().__init__(context)
@@ -267,84 +265,96 @@ class PromptToolsPlugin(Star):
             yield event.plain_result(f"索引 {index} 超出范围。可用的提示索引范围: 0-{len(prompts)-1}")
     
     @prompt_command_group.command("activate")
-    async def activate_prompts(self, event: AstrMessageEvent, index: Any = None):
-        """激活指定索引的提示"""
-        # 检查是否提供了参数
-        if index is None:
+    async def activate_prompts(self, event: AstrMessageEvent, *, indices: list[str]):
+        """激活指定索引的提示 (可一次激活多个，用空格分隔)"""
+        # 检查传入的列表是否为空
+        if not indices:
             yield event.plain_result("请指定要激活的提示索引。例如: /prompt activate 0 1 2")
             return
         
-        # 处理单个整数或列表的情况
-        if isinstance(index, int):
-            index_list = [index]
-        elif isinstance(index, list):
-            index_list = index
-        else:
-            # 尝试将参数转换为整数
-            try:
-                index_list = [int(index)]
-            except (ValueError, TypeError):
-                yield event.plain_result("提供的索引无效，请使用整数索引。例如: /prompt activate 0")
-                return
+        index_list = []
+        invalid_indices = []
         
+        # 处理传入的索引字符串列表
+        for index_str in indices:
+            try:
+                index = int(index_str)
+                index_list.append(index)
+            except ValueError:
+                invalid_indices.append(index_str)
+        
+        # 如果有无效的索引，提示用户
+        if invalid_indices:
+            yield event.plain_result(f"提供的索引无效: {', '.join(invalid_indices)}。请使用整数索引。例如: /prompt activate 0 1 2")
+            # 如果所有索引都无效，则直接返回
+            if not index_list:
+                return
+
         # 激活提示
         newly_active_prompts = self._activate_prompts(index_list)
         
         if not newly_active_prompts:
-            yield event.plain_result("未能激活任何提示。请检查索引是否有效。")
+            # 如果没有新的提示被激活（可能是因为索引无效或重复激活）
+            active_count = len(self.active_prompts)
+            message = "未能激活任何新的提示。请检查索引是否有效或是否已激活。"
+            if active_count > 0:
+                 message += f"\n当前已激活 {active_count} 个提示。"
+            yield event.plain_result(message)
             return
             
-        result = f"已激活 {len(newly_active_prompts)} 个提示:\n"
-        for i, prompt in enumerate(newly_active_prompts):
-            name = prompt.get("name", "未命名")
-            result += f"{i}. {name}\n"
+        result = f"已激活 {len(newly_active_prompts)} 个新提示:\n"
+        activated_names = [p.get("name", "未命名") for p in newly_active_prompts]
+        result += "\n".join(f"- {name}" for name in activated_names)
         
         # 显示当前所有激活的提示总数
-        result += f"\n当前已激活 {len(self.active_prompts)} 个提示（共计）"
+        result += f"\n\n当前共激活 {len(self.active_prompts)} 个提示。"
         
         # 提示前缀状态
         prefix_content = self._get_current_prefix()
         if prefix_content:
-            result += "\n[系统] 当前预设的前缀提示将自动应用"
+            result += "\n[系统] 当前预设的前缀提示将自动应用。"
             
         yield event.plain_result(result)
     
     @prompt_command_group.command("deactivate")
-    async def deactivate_prompt(self, event: AstrMessageEvent, index: int = None):
+    async def deactivate_prompt(self, event: AstrMessageEvent, index: str = None):
         """关闭指定索引的激活提示"""
         if index is None:
-            yield event.plain_result("请指定要关闭的激活提示索引。例如: /prompt deactivate 0")
+            yield event.plain_result("请指定要关闭的激活提示索引。使用 /prompts 查看当前激活提示及其索引。例如: /prompt deactivate 0")
             return
         
         # 确保index是整数
         try:
-            index = int(index)
+            idx_to_remove = int(index)
         except (ValueError, TypeError):
-            yield event.plain_result("提供的索引无效，请使用整数索引。例如: /prompt deactivate 0")
+            yield event.plain_result(f"提供的索引 '{index}' 无效，请使用整数索引。例如: /prompt deactivate 0")
             return
         
         if not self.active_prompts:
             yield event.plain_result("当前没有激活的提示。")
             return
         
-        if index < 0 or index >= len(self.active_prompts):
-            yield event.plain_result(f"索引 {index} 超出范围。有效范围: 0-{len(self.active_prompts)-1}")
+        if idx_to_remove < 0 or idx_to_remove >= len(self.active_prompts):
+            yield event.plain_result(f"索引 {idx_to_remove} 超出范围。有效范围: 0-{len(self.active_prompts)-1}")
             return
         
         # 关闭指定索引的提示
-        removed_prompt = self._deactivate_prompt(index)
+        removed_prompt = self._deactivate_prompt(idx_to_remove)
         if removed_prompt:
             name = removed_prompt.get("name", "未命名")
-            yield event.plain_result(f"已关闭激活提示: {name}")
+            yield event.plain_result(f"已关闭激活提示 (原索引 {idx_to_remove}): {name}")
             
             # 显示当前剩余的激活提示
             if self.active_prompts:
-                result = f"当前仍有 {len(self.active_prompts)} 个激活的提示:\n"
+                result = f"\n当前剩余 {len(self.active_prompts)} 个激活的提示:\n"
                 for i, prompt in enumerate(self.active_prompts):
-                    name = prompt.get("name", "未命名")
-                    result += f"{i}. {name}\n"
-                yield event.plain_result(result)
+                    p_name = prompt.get("name", "未命名")
+                    result += f"{i}. {p_name}\n"
+                yield event.plain_result(result.strip()) # 使用 strip() 移除末尾可能多余的换行符
+            else:
+                yield event.plain_result("所有手动激活的提示已被关闭。")
         else:
+            #理论上不应该发生，因为我们已经检查过索引
             yield event.plain_result(f"关闭提示失败。")
     
     @filter.command("prompts")
