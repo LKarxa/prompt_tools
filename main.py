@@ -9,7 +9,7 @@ from astrbot.api import logger
 
 from .prompt_extractor import PromptExtractor
 
-@register("prompt_tools", "LKarxa", "提示词管理与激活工具", "1.0.1", "https://github.com/LKarxa/prompt_tools")
+@register("prompt_tools", "LKarxa", "提示词管理与激活工具", "1.1.1", "https://github.com/LKarxa/prompt_tools")
 class PromptToolsPlugin(Star):
     def __init__(self, context: Context):
         super().__init__(context)
@@ -181,6 +181,93 @@ class PromptToolsPlugin(Star):
         # 移除并返回指定索引的激活提示
         return self.active_prompts.pop(index)
     
+    def _save_prompt_to_file(self, prompt: Dict[str, Any]) -> bool:
+        """
+        将提示词保存到当前预设文件夹
+        
+        Args:
+            prompt: 包含name和content的提示词信息
+            
+        Returns:
+            是否保存成功
+        """
+        if not self.current_preset_name:
+            logger.warning("当前未选择预设，无法保存提示词")
+            return False
+        
+        try:
+            preset_folder = self.output_folder / self.current_preset_name
+            self._ensure_directory_exists(preset_folder)
+            
+            # 创建安全的文件名（替换不安全字符）
+            name = prompt.get("name", "未命名")
+            safe_name = "".join(c if c.isalnum() or c in [' ', '_', '-'] else '_' for c in name)
+            safe_name = safe_name.strip().replace(' ', '_')
+            
+            # 为用户自定义提示词添加特殊标识
+            if not safe_name.startswith("user_"):
+                safe_name = f"user_{safe_name}"
+                
+            file_path = preset_folder / f"{safe_name}.json"
+            
+            # 添加identifier标识符，使用名称的小写和下划线版本
+            if "identifier" not in prompt:
+                prompt["identifier"] = safe_name.lower()
+            
+            # 将提示保存为JSON格式
+            with open(file_path, 'w', encoding='utf-8') as f:
+                json.dump(prompt, f, ensure_ascii=False, indent=4)
+            
+            logger.info(f"保存提示词到JSON文件: {file_path}")
+            return True
+            
+        except Exception as e:
+            logger.error(f"保存提示词到文件时出错: {str(e)}")
+            return False
+    
+    def _add_prompt_to_preset(self, name: str, content: str) -> Optional[Dict[str, Any]]:
+        """
+        添加新提示词到当前预设
+        
+        Args:
+            name: 提示词名称
+            content: 提示词内容
+            
+        Returns:
+            添加的提示词信息，如果添加失败则返回None
+        """
+        if not self.current_preset_name:
+            logger.warning("当前未选择预设，无法添加提示词")
+            return None
+        
+        if not name or not content:
+            logger.warning("提示词名称和内容不能为空")
+            return None
+        
+        # 创建提示词数据结构
+        prompt = {
+            "name": name,
+            "content": content,
+            "is_prefix": False,
+            "identifier": f"user_{name.lower().replace(' ', '_')}",
+            "user_created": True,  # 标记为用户创建
+            "created_at": None  # 可以添加创建时间
+        }
+        
+        # 保存到文件
+        if not self._save_prompt_to_file(prompt):
+            return None
+        
+        # 添加到内存中的预设
+        if self.current_preset_name in self.presets:
+            self.presets[self.current_preset_name].append(prompt)
+            logger.info(f"已添加提示词 '{name}' 到预设 '{self.current_preset_name}'")
+        else:
+            self.presets[self.current_preset_name] = [prompt]
+            logger.info(f"已创建预设 '{self.current_preset_name}' 并添加提示词 '{name}'")
+        
+        return prompt
+    
     @filter.command_group("prompt")
     def prompt_command_group(self):
         """提示词管理命令组"""
@@ -340,6 +427,137 @@ class PromptToolsPlugin(Star):
         result += f"```\n{prefix_content}\n```"
         
         yield event.plain_result(result)
+    
+    @prompt_command_group.command("add")
+    async def add_prompt(self, event: AstrMessageEvent, name: str, content: str = None):
+        """
+        添加新的提示词到当前预设
+        
+        用法: /prompt add <名称> <内容>
+        如果内容为空，将从接下来的用户输入中获取
+        """
+        if not self.current_preset_name:
+            yield event.plain_result("⚠️ 当前未选择预设，请使用 `/prompt use <索引>` 选择一个预设")
+            return
+        
+        if not name:
+            yield event.plain_result("⚠️ 请提供提示词名称")
+            return
+        
+        # 如果内容为空，提示用户输入
+        if not content:
+            yield event.plain_result(f"请输入提示词 **{name}** 的内容（直接输入，输入完成后会自动保存）:")
+            
+            # 等待用户下一条消息
+            next_message = await event.wait_for_next_message()
+            if not next_message:
+                yield event.plain_result("❌ 等待输入超时，添加提示词失败")
+                return
+            
+            content = next_message.content
+            if not content:
+                yield event.plain_result("❌ 提示词内容不能为空")
+                return
+        
+        # 添加提示词
+        prompt = self._add_prompt_to_preset(name, content)
+        
+        if prompt:
+            yield event.plain_result(f"✅ 成功添加提示词: **{name}**\n\n"
+                                    f"可以使用 `/prompt list` 查看所有提示词，"
+                                    f"使用 `/prompt view <索引>` 查看提示词内容")
+        else:
+            yield event.plain_result("❌ 添加提示词失败，请检查日志获取详细错误信息")
+    
+    @prompt_command_group.command("create_preset")
+    async def create_preset(self, event: AstrMessageEvent, name: str):
+        """创建新的预设文件夹"""
+        if not name:
+            yield event.plain_result("⚠️ 请提供预设名称")
+            return
+        
+        # 创建预设文件夹
+        preset_folder = self.output_folder / name
+        
+        try:
+            # 检查是否已存在
+            if preset_folder.exists():
+                yield event.plain_result(f"⚠️ 预设 '{name}' 已经存在")
+                return
+            
+            # 创建文件夹
+            self._ensure_directory_exists(preset_folder)
+            
+            # 初始化空预设
+            self.presets[name] = []
+            
+            # 切换到新预设
+            self.current_preset_name = name
+            
+            yield event.plain_result(f"✅ 已创建新预设: **{name}**\n\n"
+                                   f"当前已切换到此预设，使用 `/prompt add` 来添加提示词")
+            
+        except Exception as e:
+            logger.error(f"创建预设时出错: {str(e)}")
+            yield event.plain_result(f"❌ 创建预设失败: {str(e)}")
+            
+    @prompt_command_group.command("delete")
+    async def delete_prompt(self, event: AstrMessageEvent, index: int):
+        """删除指定索引的提示词"""
+        all_prompts = self._get_current_prompts()
+        
+        if not all_prompts:
+            yield event.plain_result("⚠️ 当前预设中没有可用的提示词")
+            return
+        
+        if 0 <= index < len(all_prompts):
+            prompt = all_prompts[index]
+            name = prompt.get("name", "未命名")
+            
+            # 检查是否为用户创建的提示词
+            if not prompt.get("user_created", False):
+                yield event.plain_result(f"⚠️ 提示词 '{name}' 不是由用户创建的，无法删除")
+                return
+            
+            # 从激活列表中删除
+            if prompt in self.active_prompts:
+                self.active_prompts.remove(prompt)
+            
+            # 从预设中删除
+            self.presets[self.current_preset_name].remove(prompt)
+            
+            # 尝试删除文件
+            try:
+                identifier = prompt.get("identifier", "")
+                if identifier:
+                    preset_folder = self.output_folder / self.current_preset_name
+                    
+                    # 尝试使用不同的文件名模式
+                    possible_filenames = [
+                        f"user_{identifier}.json",
+                        f"{identifier}.json",
+                        f"user_{name.replace(' ', '_')}.json",
+                        f"{name.replace(' ', '_')}.json"
+                    ]
+                    
+                    deleted = False
+                    for filename in possible_filenames:
+                        file_path = preset_folder / filename
+                        if file_path.exists():
+                            os.remove(file_path)
+                            deleted = True
+                            logger.info(f"已删除文件: {file_path}")
+                            break
+                    
+                    if not deleted:
+                        logger.warning(f"未找到要删除的文件，提示词 '{name}' 已从内存中移除但文件可能仍存在")
+            
+            except Exception as e:
+                logger.error(f"删除提示词文件时出错: {str(e)}")
+            
+            yield event.plain_result(f"✅ 已删除提示词: **{name}**")
+        else:
+            yield event.plain_result(f"⚠️ 无效的提示词索引: {index}\n请使用 `/prompt list` 查看可用的提示词")
     
     @filter.command("prompts")
     async def list_active_prompts(self, event: AstrMessageEvent):
