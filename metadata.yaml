@@ -1,7 +1,7 @@
 name: prompt_tools
 display_name: 提示词管理与激活工具
 author: LKarxa
-version: 1.0.0
+version: 1.0.1
 description: 一个用于管理和激活提示词的插件，支持多预设、动态激活和前缀提示功能
 url: https://github.com/LKarxa/prompt_tools
 tags:
