@@ -4,14 +4,21 @@
 import json
 import os
 from pathlib import Path
-from typing import Dict, List, Optional, Any, Tuple
+from typing import Dict, List, Optional, Any, Tuple, Union
 from astrbot.api import logger
+
+# 尝试导入StarTools，如果在独立运行时导入失败则忽略
+try:
+    from astrbot.api.star import StarTools
+    has_star_tools = True
+except ImportError:
+    has_star_tools = False
 
 class PromptExtractor:
     """
     从JSON文件中提取提示信息的工具类
     """
-    def __init__(self, presets_folder: str = "data/presets", output_folder: str = "prompts"):
+    def __init__(self, presets_folder: Union[str, Path], output_folder: Union[str, Path]):
         """
         初始化提示提取器
         
@@ -19,6 +26,7 @@ class PromptExtractor:
             presets_folder: JSON文件所在的文件夹路径
             output_folder: 提取的提示信息保存的文件夹路径
         """
+        # 确保转换为Path对象
         self.presets_folder = Path(presets_folder)
         self.output_folder = Path(output_folder)
         self.prefix_identifier = "__PREFIX__"  # 前缀标识符
