@@ -2,7 +2,7 @@
 
 这是一个用于管理和激活提示词的插件，帮助用户更有效地组织、管理和应用提示词到AI对话中。
 
-可以搭配我的另外一个插件使用 https://github.com/LKarxa/astrbot_plugin_regex_filter
+可以搭配我的另外一个插件使用[https://github.com/LKarxa/astrbot_plugin_regex_filter](https://github.com/LKarxa/astrbot_plugin_regex_filter)
 
 ## 功能特点
 
