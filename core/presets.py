@@ -105,24 +105,51 @@ class PresetsManager:
                         with open(json_file, 'r', encoding='utf-8') as f:
                             prompt_data = json.load(f)
                             
-                            # Check if it's a prefix prompt
-                            if prompt_data.get("is_prefix", False) or json_file.name == "prompt_prefix.json":
-                                content = prompt_data.get("content", "")
-                                if not isinstance(content, str):
-                                    content = str(content)
-                                if preset_prefix:
-                                     logger.warning(f"预设 '{preset_name}' 发现多个前缀提示，将使用 '{json_file.name}' 的内容")
-                                preset_prefix = content
-                                continue
+                            # 检查是否是列表格式的数据
+                            if isinstance(prompt_data, list):
+                                # 如果是列表，遍历每个元素
+                                for item in prompt_data:
+                                    if isinstance(item, dict):
+                                        # Check if it's a prefix prompt
+                                        if item.get("is_prefix", False) or json_file.name == "prompt_prefix.json":
+                                            content = item.get("content", "")
+                                            if not isinstance(content, str):
+                                                content = str(content)
+                                            if preset_prefix:
+                                                logger.warning(f"预设 '{preset_name}' 发现多个前缀提示，将使用 '{json_file.name}' 的内容")
+                                            preset_prefix = content
+                                            continue
 
-                            # Add regular prompts
-                            content = prompt_data.get("content", "")
-                            if isinstance(content, str) and content.strip():
-                                prompts.append(prompt_data)
-                            elif not isinstance(content, str):
-                                logger.debug(f"提示词 '{prompt_data.get('name', '未命名')}' 在 '{preset_name}' 中的内容不是字符串，已转换为: '{str(content)}'")
-                                prompt_data["content"] = str(content)
-                                prompts.append(prompt_data)
+                                        # Add regular prompts
+                                        content = item.get("content", "")
+                                        if isinstance(content, str) and content.strip():
+                                            prompts.append(item)
+                                        elif not isinstance(content, str):
+                                            logger.debug(f"提示词 '{item.get('name', '未命名')}' 在 '{preset_name}' 中的内容不是字符串，已转换为: '{str(content)}'")
+                                            item["content"] = str(content)
+                                            prompts.append(item)
+                            elif isinstance(prompt_data, dict):
+                                # 原有的字典格式处理逻辑
+                                # Check if it's a prefix prompt
+                                if prompt_data.get("is_prefix", False) or json_file.name == "prompt_prefix.json":
+                                    content = prompt_data.get("content", "")
+                                    if not isinstance(content, str):
+                                        content = str(content)
+                                    if preset_prefix:
+                                         logger.warning(f"预设 '{preset_name}' 发现多个前缀提示，将使用 '{json_file.name}' 的内容")
+                                    preset_prefix = content
+                                    continue
+
+                                # Add regular prompts
+                                content = prompt_data.get("content", "")
+                                if isinstance(content, str) and content.strip():
+                                    prompts.append(prompt_data)
+                                elif not isinstance(content, str):
+                                    logger.debug(f"提示词 '{prompt_data.get('name', '未命名')}' 在 '{preset_name}' 中的内容不是字符串，已转换为: '{str(content)}'")
+                                    prompt_data["content"] = str(content)
+                                    prompts.append(prompt_data)
+                            else:
+                                logger.warning(f"文件 {json_file} 中的数据格式不支持，跳过处理 (期望字典或列表格式)")
 
                     except (IOError, json.JSONDecodeError) as e:
                         logger.error(f"读取或解析 {json_file} 时出错: {e}", exc_info=True)
