@@ -143,3 +143,10 @@
 -   提取后的提示词目录：`data/plugin_data/prompt_tools/presets/<预设名>/*.json`
 -   提示词激活状态文件：`data/plugin_data/prompt_tools/presets/<预设名>/prompt_activation_state.json`
 -   提示词组合配置文件：`data/plugin_data/prompt_tools/presets/<预设名>_groups.json`
+
+-   > ⚠️ **社区修复版说明**
+> 本仓库为原作者 [LKarxa](https://github.com/LKarxa/prompt_tools) 的社区修复版本。
+> 由于原项目停更，导致在 AstrBot v4.26.5 及以上版本中触发 `TypeError`（`on_llm_request` 钩子传参不匹配）。
+> 本版本已修复该问题，兼容 `dict` 与对象两种请求载体，并保持原有激活逻辑不变。
+> 如果你在使用最新版 AstrBot，建议安装此版本。
+

@@ -232,7 +232,7 @@ class PromptToolsPlugin(Star):
                     # 消息可能是 "组合为空" 或 "提示词未激活"
                     yield event.plain_result(f"✅ {message}\n\n当前剩余 {active_count} 个激活提示词")
             else:
-                logger.warning(f"用户 {event.get_user_id()} 关闭组合 '{group_name}' 失败: {message}")
+                logger.warning(f"用户 {event.get_sender_id()} 关闭组合 '{group_name}' 失败: {message}")
                 yield event.plain_result(f"⚠️ {message}\n\n当前剩余 {active_count} 个激活提示词")
         else:
             # 检查是否包含逗号，如果有则表示要关闭多个提示词
@@ -280,13 +280,13 @@ class PromptToolsPlugin(Star):
                     
                     if success:
                         prompt_name = prompt.get('name', '未命名') if prompt else '未知提示词'
-                        logger.info(f"用户 {event.get_user_id()} 关闭激活索引 {active_index} ('{prompt_name}') 成功")
+                        logger.info(f"用户 {event.get_sender_id()} 关闭激活索引 {active_index} ('{prompt_name}') 成功")
                         yield event.plain_result(f"✅ {message}\n\n当前剩余 {active_count_after} 个激活提示词")
                     else:
-                        logger.warning(f"用户 {event.get_user_id()} 关闭激活索引 {active_index} 失败: {message}")
+                        logger.warning(f"用户 {event.get_sender_id()} 关闭激活索引 {active_index} 失败: {message}")
                         yield event.plain_result(f"⚠️ {message}\n\n当前剩余 {active_count_after} 个激活提示词")
                 except ValueError:
-                    logger.warning(f"用户 {event.get_user_id()} 尝试关闭无效目标: '{target}'")
+                    logger.warning(f"用户 {event.get_sender_id()} 尝试关闭无效目标: '{target}'")
                     yield event.plain_result(f"⚠️ 无效输入: 请输入激活提示词的索引 (数字)、以逗号分隔的多个索引、组合名称 (以 @ 开头) 或 'all'")
                 except Exception as e:
                      logger.error(f"处理关闭目标 '{target}' 时发生意外错误: {e}", exc_info=True)
@@ -391,10 +391,10 @@ class PromptToolsPlugin(Star):
             # 直接添加
             success, message, prompt = self.controller.add_prompt(name, content)
             if success:
-                logger.info(f"用户 {event.get_user_id()} 添加提示词 '{name}' 成功")
+                logger.info(f"用户 {event.get_sender_id()} 添加提示词 '{name}' 成功")
                 yield event.plain_result(f"✅ {message}")
             else:
-                logger.warning(f"用户 {event.get_user_id()} 添加提示词 '{name}' 失败: {message}")
+                logger.warning(f"用户 {event.get_sender_id()} 添加提示词 '{name}' 失败: {message}")
                 yield event.plain_result(f"⚠️ {message}")
         else:
             # 等待下一条消息
@@ -409,21 +409,21 @@ class PromptToolsPlugin(Star):
                 new_content = next_event.get_plain_text().strip()
                 
                 if not new_content or new_content.lower() in ["取消", "cancel"]:
-                    logger.info(f"用户 {event.get_user_id()} 取消添加提示词 '{name}'")
+                    logger.info(f"用户 {event.get_sender_id()} 取消添加提示词 '{name}'")
                     yield event.plain_result(f"ℹ️ 已取消添加提示词 '{name}'")
                     return
 
                 # 添加提示词
                 success, message, prompt = self.controller.add_prompt(name, new_content)
                 if success:
-                    logger.info(f"用户 {event.get_user_id()} 通过等待添加提示词 '{name}' 成功")
+                    logger.info(f"用户 {event.get_sender_id()} 通过等待添加提示词 '{name}' 成功")
                     yield event.plain_result(f"✅ {message}")
                 else:
-                    logger.warning(f"用户 {event.get_user_id()} 通过等待添加提示词 '{name}' 失败: {message}")
+                    logger.warning(f"用户 {event.get_sender_id()} 通过等待添加提示词 '{name}' 失败: {message}")
                     yield event.plain_result(f"⚠️ {message}")
 
             except TimeoutError:
-                logger.warning(f"用户 {event.get_user_id()} 添加提示词 '{name}' 超时")
+                logger.warning(f"用户 {event.get_sender_id()} 添加提示词 '{name}' 超时")
                 yield event.plain_result(f"⏰ 添加提示词 '{name}' 超时，已自动取消")
             except Exception as e:
                 logger.error(f"处理添加提示词 '{name}' 时发生意外错误: {e}", exc_info=True)
@@ -526,21 +526,62 @@ class PromptToolsPlugin(Star):
             yield event.plain_result(f"⚠️ {message}")
 
     @filter.on_llm_request(priority=10)
-    async def process_llm_request(self, event: AstrMessageEvent, context: Dict[str, Any]):
+    async def process_llm_request(self, event: AstrMessageEvent, *args, **kwargs):
         """在发送给LLM前处理请求，添加提示词"""
-        system_prompt = context.get("system_prompt", "")
-        user_prompt = context.get("user_prompt", "")
-        
+        logger.debug(f"process_llm_request 收到参数: args={args}, kwargs={kwargs}")
+
+        req = None
+
+        # 优先从 kwargs 里找
+        for key in ("context", "request", "req", "provider_request"):
+            if key in kwargs:
+                req = kwargs[key]
+                break
+
+        # 再从位置参数里找
+        if req is None:
+            for arg in args:
+                if isinstance(arg, dict) and (
+                    "system_prompt" in arg or "user_prompt" in arg or "prompt" in arg
+                ):
+                    req = arg
+                    break
+                if hasattr(arg, "system_prompt") or hasattr(arg, "prompt"):
+                    req = arg
+                    break
+
+        if req is None:
+            logger.warning("process_llm_request: 未能识别 LLM 请求对象，跳过提示词处理")
+            return
+
+        # 统一取系统提示词和用户提示词
+        if isinstance(req, dict):
+            system_prompt = req.get("system_prompt", "") or ""
+            user_prompt = req.get("user_prompt", "") or req.get("prompt", "") or ""
+        else:
+            system_prompt = getattr(req, "system_prompt", "") or ""
+            user_prompt = getattr(req, "prompt", "") or getattr(req, "user_prompt", "") or ""
+
         modified_system, modified_user = self.controller.process_llm_request(system_prompt, user_prompt)
-        
-        context["system_prompt"] = modified_system
-        context["user_prompt"] = modified_user
-        
+
+        # 回写
+        if isinstance(req, dict):
+            req["system_prompt"] = modified_system
+            if "user_prompt" in req:
+                req["user_prompt"] = modified_user
+            else:
+                req["prompt"] = modified_user
+        else:
+            req.system_prompt = modified_system
+            if hasattr(req, "prompt"):
+                req.prompt = modified_user
+            elif hasattr(req, "user_prompt"):
+                req.user_prompt = modified_user
+
         active_prompts = self.controller.get_active_prompts()
         prefix = self.controller.get_current_prefix()
         if active_prompts or prefix:
-            logger.debug(f"已将前缀和 {len(active_prompts)} 个激活的提示词添加到LLM请求中")
-            
+            logger.debug(f"已将前缀和 {len(active_prompts)} 个激活的提示词添加到LLM请求中")            
     @filter.on_astrbot_loaded()
     async def on_astrbot_loaded(self):
         """插件启动时执行"""
